@@ -1,5 +1,7 @@
 # GenericMichell
 
+[![DOI](https://zenodo.org/badge/1303908344.svg)](https://zenodo.org/badge/latestdoi/1303908344)
+
 GenericMichell is a reduced-order resistance and running-attitude solver for
 speed sweeps spanning displacement, semi-planing and planing operation. The
 Python module combines a C++17 computational core with pybind11 bindings.

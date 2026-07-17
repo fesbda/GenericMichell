@@ -4,6 +4,11 @@ title: "GenericMichell: continuous displacement-to-planing resistance solver"
 type: software
 version: 1.0.0
 date-released: 2026-07-17
+doi: 10.5281/zenodo.21413025
+identifiers:
+  - type: doi
+    value: 10.5281/zenodo.21413024
+    description: "Concept DOI resolving to the latest archived version"
 repository-code: "https://github.com/fesbda/GenericMichell"
 authors:
   - family-names: Mimica
