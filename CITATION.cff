@@ -1,0 +1,31 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the software release and the associated paper."
+title: "GenericMichell: continuous displacement-to-planing resistance solver"
+type: software
+version: 1.0.0
+date-released: 2026-07-17
+repository-code: "https://github.com/fesbda/GenericMichell"
+authors:
+  - family-names: Mimica
+    given-names: Davor
+    orcid: "https://orcid.org/0009-0000-0382-170X"
+  - family-names: Bašić
+    given-names: Josip
+    orcid: "https://orcid.org/0000-0002-0658-2369"
+license: GPL-2.0-or-later
+preferred-citation:
+  type: article
+  title: "Continuous prediction of resistance and running attitude across the displacement-to-planing transition"
+  authors:
+    - family-names: Mimica
+      given-names: Davor
+    - family-names: Bezić
+      given-names: Ines
+    - family-names: Bašić
+      given-names: Martina
+    - family-names: Blagojević
+      given-names: Branko
+    - family-names: Bašić
+      given-names: Josip
+  journal: "Ocean Engineering"
+  status: unpublished
