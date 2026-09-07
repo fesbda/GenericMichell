@@ -9,7 +9,13 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(PYBIND11_FINDPYTHON ON)
 
-option(MICHELL_USE_OPENMP "Enable OpenMP acceleration when available" ON)
+# OpenMP is OFF by default for two reasons, both of which matter more than speed.
+# It makes the equilibrium solve nondeterministic at the 1e-4 level run to run, so
+# the reproducible configuration -- the one the associated manuscript's numbers were
+# produced with -- is a serial build.  It also breaks the MSVC build outright: MSVC
+# implements OpenMP 2.0, whose 'for' directive rejects the unsigned loop indices used
+# in the field loops.  Turn it on for speed when neither matters to you.
+option(MICHELL_USE_OPENMP "Enable OpenMP acceleration when available (nondeterministic; not supported by MSVC)" OFF)
 option(MICHELL_BUILD_TESTS "Enable the Python smoke test" ON)
 
 find_package(Python COMPONENTS Interpreter Development.Module REQUIRED)

@@ -25,6 +25,12 @@ for the first time here; the other two come from the revision.
 - **Doctors transom closure on one representation** (from the submitted version). Beam
   and draft are both taken from the source grid; mixing a mesh-waterplane breadth with
   a grid draft let the closure toggle under sub-millimetre pose changes.
+- **The CMake build defaults to OpenMP off.** OpenMP makes the equilibrium solve
+  nondeterministic at the 1e-4 level, so a serial build is the configuration the
+  manuscript's numbers were produced with; it also broke the MSVC build outright,
+  since MSVC implements OpenMP 2.0 and rejects the unsigned loop indices in the field
+  loops. 1.0.0 defaulted it on and therefore did not build on Windows.
+  `-DMICHELL_USE_OPENMP=ON` restores the previous behaviour.
 - **`python/paper_configuration.py` now sets robust chine extraction**, which the
   manuscript configuration requires and 1.0.0 omitted, and states the Blount–Fox
   amplitude explicitly rather than inheriting it from the compiled default.
