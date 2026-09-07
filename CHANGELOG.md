@@ -2,9 +2,10 @@
 
 ## 1.1.0 — 2026-09-07
 
-Solver state behind the revised Ocean Engineering manuscript. Two of the four items
-below entered on 20 July 2026, with the submitted version, and are released publicly
-for the first time here; the other two come from the revision.
+Solver state behind the revised Ocean Engineering manuscript. Two of the items below
+entered on 20 July 2026 with the submitted version and reach the public repository for
+the first time here; the rest come from the revision, and one from verifying this
+release on Windows.
 
 - **Blount–Fox hump multiplier withdrawn.** The default amplitude is 0.0 rather than
   0.5, and the hump is carried by the pre-planing residuary shortfall alone. The term
