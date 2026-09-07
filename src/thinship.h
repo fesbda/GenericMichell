@@ -859,8 +859,19 @@ private:
         auto constexpr C4d = 0.3126;
 
         double const Fn_T = speed / std::sqrt(env->get_gravity() * transom_draft);
-        double const Fn_B = speed / std::sqrt(env->get_gravity() * hull->get_beam_transom());
-        double const BT = hull->get_beam_transom() / transom_draft;
+        // Keep beam and draft on the same ProfileGrid representation.  The
+        // mesh-waterplane transom breadth can toggle between zero and a few
+        // millimetres under tiny pose changes even while the source grid has
+        // the same full-width transom row.  Mixing that breadth with the grid
+        // draft made the Doctors closure switch on/off and produced O(0.03)
+        // jumps in the propeller-disc wake.  The source-grid half breadth is
+        // the quantity actually used by the spectrum below.
+        double const transom_beam = 2.0 * grid->get_beam_transom(0);
+        if (transom_beam <= 0.0) {
+            return 0.0;
+        }
+        double const Fn_B = speed / std::sqrt(env->get_gravity() * transom_beam);
+        double const BT = transom_beam / transom_draft;
         double const Rn = std::sqrt(env->get_gravity() * cub(transom_draft)) / env->get_viscosity();
 
         double const eta_doctors_static = clamp(C1s * std::pow(Fn_T, C2s) * std::pow(BT, C3s) * std::pow(Rn, C4s), 0.0, 1.0);
@@ -919,7 +930,11 @@ private:
         auto constexpr C4d = -0.1225;
 
         auto Fn = speed / std::sqrt(env->get_gravity() * transom_draft);
-        auto BT = hull->get_beam_transom() / transom_draft;
+        auto const transom_beam = 2.0 * grid->get_beam_transom(0);
+        if (transom_beam <= 0.0) {
+            return 0.0;
+        }
+        auto BT = transom_beam / transom_draft;
         auto Rn = std::sqrt(env->get_gravity() * cub(transom_draft)) / env->get_viscosity();
         auto L_doctors_static = transom_draft * C1s * std::pow(Fn, C2s) * std::pow(BT, C3s) * std::pow(Rn, C4s);
         auto L_doctors_dynamic = transom_draft * C1d * std::pow(Fn, C2d) * std::pow(BT, C3d) * std::pow(Rn, C4d);

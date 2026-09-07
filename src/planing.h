@@ -120,6 +120,16 @@ private:
     // ---- Tunable levers (grouped; mutated only via the set_* forwarders below) ----
     struct Config {
         double lambda_cap = 12.0;        // hard upper bound on the wetted λ (see Morabito)
+        // Blount-Fox hump multiplier amplitude: MP = 1 + amp*max(0, M-1).  WITHDRAWN in the
+        // OE revision: the term overlapped the Eq. (11) residuary shortfall (crossed-ablation
+        // interaction -1.66 pt) and the amplitude ladder on the corrected build is monotone
+        // outside the hump band -- pooled resistance MAPE 8.41% at 0.0 against 8.76% at 0.5 over
+        // the 119-point comparator set, 8.37 against 8.58% over all 251 measured points.  The
+        // default is therefore 0.0 and the hump is carried by the residuary shortfall alone;
+        // the lever is retained so the ladder can be REPORTED as the evidence for the removal.
+        // Attitude is unaffected either way: this scales planing friction, and shear carries no
+        // vertical force or moment, so trim and heave are bit-identical across the change.
+        double blount_fox_amplitude = 0.0;
         bool use_true_wetted = true;     // friction on the TRUE wetted length (physics-first default 2026-06-25)
         double friction_factor = 1.0;    // λ_f = friction_factor × geometric mean wetted length
         double planing_ca = 0.0006981;   // planing-bottom additive correlation allowance (planing practice).
@@ -173,6 +183,12 @@ public:
     void set_friction_width(bool on) { cfg.fric_width = on; }
     void set_planing_ca(double ca) { cfg.planing_ca = std::max(0.0, ca); }
     void set_deadrise_scaled_friction(bool on) { cfg.deadrise_scaled_fric = on; }
+    /// Blount-Fox hump-multiplier amplitude: MP = 1 + amp*max(0, M-1).  0.5 (default) is the
+    /// shipped half-amplitude and is byte-identical to every submitted result; 1.0 is the
+    /// published full recommendation; 0.0 removes the multiplier entirely.
+    void set_blount_fox_amplitude(double amp) { cfg.blount_fox_amplitude = amp; }
+    double get_blount_fox_amplitude() const { return cfg.blount_fox_amplitude; }
+
     /// Savitsky (2012) effective-attitude corrections (running-trim friction path; see Morabito).
     void set_savitsky2012(int mode, double station_frac) {
         cfg.s12_mode = std::max(0, std::min(2, mode));
@@ -367,7 +383,7 @@ public:
         double const M = 0.98
                          + 2.0 * std::pow(LCB_over_b, 1.45) * std::exp(-2.0 * (Fn_vol - 0.85))
                          - 3.0 * LCB_over_b * std::exp(-3.0 * (Fn_vol - 0.85));
-        double const MP = 1.0 + std::max(0.0, 0.5 * (M - 1.0));
+        double const MP = 1.0 + std::max(0.0, cfg.blount_fox_amplitude * (M - 1.0));
 
         out.friction = Rf * MP;
         out.wave = Rw * MP;

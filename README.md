@@ -6,10 +6,11 @@ GenericMichell is a reduced-order resistance and running-attitude solver for
 speed sweeps spanning displacement, semi-planing and planing operation. The
 Python module combines a C++17 computational core with pybind11 bindings.
 
-This repository is the compact solver release associated with the manuscript
-“Continuous prediction of resistance and running attitude across the
-displacement-to-planing transition.” It intentionally contains no proprietary
-CFD files, third-party hull geometries or experimental datasets.
+This repository is the compact solver release associated with the
+manuscript “A blended reduced-order method for resistance and running
+attitude across the displacement-to-planing transition.” It
+intentionally contains no proprietary CFD files, third-party hull
+geometries or experimental datasets.
 
 ## What is included
 

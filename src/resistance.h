@@ -204,15 +204,15 @@ private:
         // pdyn (2026-07-10 pressure-term campaign, DEFAULT OFF; fixes_ab/pdyn/TARGETS.md):
         // replace the planing viscous-pressure channel (the Morabito x-projection) by the
         // CFD-derived effective-angle law
-        //     D_p = L_dyn * tan(tau_run + delta0 + k_warp * dbutt).
+        //     D_p = L_pressure * tan(tau_run + delta0 + k_warp * dbutt).
         // The seven pressure/shear-decomposed STAR sims (targets.csv) show the dynamic
         // bottom pressure acting 1.3-2.2 deg STEEPER than the keel trim on prismatic hulls
         // (near-constant over Fn_vol 2.3-5.7) and up to +3.45 deg on the most-warped
         // Begovic hull, while the Morabito integral projects at/below the keel trim.
-        // The dynamic lift is PARAMETER-FREE: at equilibrium total lift = W, and the
-        // hydrostatic part is the posed buoyancy B, so the dynamic (pressure) lift is
-        // L_dyn = W - B_pose exactly. The RANS decomposition confirms this to the newton
-        // (GPPH top: W-B = 996-140 = 856 N vs computed dynamic lift 856); it replaced a
+        // The support partition is parameter-free: at equilibrium total lift = W, so
+        // bottom-pressure support is L_pressure = max(0, W - B_pose - L_wave). This keeps
+        // the pressure-drag and running-attitude ledgers identical and avoids projecting
+        // Michell wave lift a second time. The pressure projection replaced a
         // fitted buoyancy-share 'a' that was both less accurate and less physical
         // (2026-07-12 winpc: a=0 improved GPPH 5.0->4.5, Taunton 8.3->7.7, S62 8.9->8.6).
         bool pdyn_on = false;
@@ -404,7 +404,9 @@ private:
         // RESIDUARY resistance, to fill the wave/residuary deficit that thin-ship Michell
         // misses through the hump and at high deadrise (audit F3). Equation (6): a 14-term
         // Doust regression for R_T/Delta (total, ref 100,000-lb ship, C_A=0) over Fn_vol=1-2;
-        // we subtract the reference Schoenherr friction to get the scale-independent residuary
+        // we subtract reference friction using the shared ITTC-1957 line to get the
+        // scale-independent residuary. Mercier & Savitsky used Schoenherr historically; over the
+        // reference-craft Reynolds range the implemented ITTC line differs by <0.8% in Cf.
         // and use it (max'd with the Michell wave, ramped over the band) as the Auto wave term.
         // Calibration-free (Mercier's published regression + geometric form params); ON by
         // default after validation (2026-06): adds only the residuary SHORTFALL beyond the
@@ -491,7 +493,7 @@ public:
 
     /// pdyn effective-angle pressure projection (see cfg.pdyn_on; fixes_ab/pdyn).
     /// delta0 in degrees; [cv_lo, cv_hi] = the CvB handover window from the Morabito
-    /// projection to the law. The dynamic lift is parameter-free (W - B_pose).
+    /// projection to the law. Bottom-pressure support is W - B_pose - L_wave.
     void set_pdyn_projection(bool on, double delta0_deg = 1.6,
                              double k_warp = 0.0, double cv_lo = 2.5, double cv_hi = 4.5) {
         cfg.pdyn_on = on;
@@ -505,8 +507,10 @@ public:
     /// pdyn: the planing pressure drag at the CURRENT pose when cfg.pdyn_on (the caller
     /// applies the displacement/planing blend weight): a smoothstep handover in CvB from
     /// the Morabito x-projection (hump, adequate there) to the CFD-derived law
-    /// D_law = L_dyn * tan(tau_run + delta), with the parameter-free dynamic lift
-    /// L_dyn = W - B_pose and delta = delta0 + k_warp * (quarter-beam buttock delta).
+    /// D_law = L_pressure * tan(tau_run + delta). At a vertically balanced pose the pressure-
+    /// carried support is W - B_pose - L_wave, matching the attitude ledger rather than assigning
+    /// Michell wave lift to bottom pressure a second time. delta = delta0 + k_warp *
+    /// (quarter-beam buttock delta).
     double get_pdyn_pressure_drag(double speed) {
         Hull& H = const_cast<Hull&>(*hull);
         double const g = env->get_gravity();
@@ -520,7 +524,8 @@ public:
         }
         double const W = g * const_cast<Hull&>(*original_hull).get_reference_mass();
         double const B = g * H.get_displaced_mass();       // buoyancy at this pose (hydrostatic lift)
-        double const L_dyn = std::max(0.0, W - B);          // dynamic (pressure) lift, parameter-free
+        double const L_wave = michell.get_drag_lift_torque(speed).y;
+        double const L_pressure = std::max(0.0, W - B - L_wave);
         double const tau_run = std::max(0.0, -degrees(H.get_pitch()));
         if (pdyn_dbutt_deg_ < -1e8) {
             double v = 0.0;
@@ -535,7 +540,7 @@ public:
         }
         double const delta = std::max(0.0, cfg.pdyn_delta0 + cfg.pdyn_kwarp * pdyn_dbutt_deg_);
         double const tau_eff = std::min(30.0, tau_run + delta);
-        double const D_law = L_dyn * std::tan(radians(tau_eff));
+        double const D_law = L_pressure * std::tan(radians(tau_eff));
         return (1.0 - r) * morabito_x + r * D_law;
     }
     void set_radojcic_total_envelope(bool on) { cfg.radojcic_total_envelope = on; }
@@ -647,7 +652,7 @@ public:
         // -> residuary under-added (~1% of Delta at mid-Fnv). SOLVER_FIX_PLAN.md P3 (M&S 1973 / R-1667).
         double const Rn_ref = Fnv * (L / vol13)
             * std::sqrt(32.2 * 100000.0 / 64.0) / 1.2817e-5;
-        double const CF_ref = 0.075 / sq(std::log10(std::max(1e3, Rn_ref)) - 2.0);  // ~Schoenherr
+        double const CF_ref = 0.075 / sq(std::log10(std::max(1e3, Rn_ref)) - 2.0);  // ITTC-1957
         
         double RR_D = RT_D - CF_ref * S_v23 * sq(Fnv) * 0.5;
         if (RR_D < 0.0) RR_D = 0.0;
@@ -972,6 +977,10 @@ public:
         return (sec_lift - planing_flow.y) / denom;
     }
     void set_dynamic_cop_fraction(double frac) { morabito.set_dynamic_cop_fraction(frac); }
+    /// Blount-Fox hump-multiplier amplitude (Savitsky's MP).  0.5 = shipped half amplitude and
+    /// byte-identical to every submitted number; 1.0 = the published full recommendation; 0 = off.
+    void set_blount_fox_amplitude(double amp) { savitsky.set_blount_fox_amplitude(amp); }
+    double get_blount_fox_amplitude() const { return savitsky.get_blount_fox_amplitude(); }
     void set_cop_savitsky(bool on) { morabito.set_cop_savitsky(on); }
     /// Cv-ramp the dynamic-CoP fraction, gated by the hull's fore-aft deadrise spread (warp).
     /// slope=0 (default) is OFF/byte-identical; ref is the neutral beam-Froude Cv. Warped hulls only.
@@ -1623,7 +1632,8 @@ public:
     /// Mercier-Savitsky (1973) pre-planing residuary resistance (N), gated to planing-form
     /// hulls and ramped over the band (0 below Fn_vol 0.9, full in [1,2], fading to 0 by
     /// 3.0). Evaluates Eq.(6) for R_T/Delta interpolated in Fn_vol, subtracts the reference
-    /// (100,000-lb) Schoenherr friction to get the scale-independent residuary, x weight.
+    /// (100,000-lb) reference friction using the ITTC-1957 line to get the scale-independent
+    /// residuary, x weight. (The Mercier-Savitsky source used Schoenherr historically.)
     double get_mercier_savitsky_residuary(double speed) const {
         if (!cfg.mercier_savitsky_on || speed < 1e-2 || !hull) {
             return 0.0;
@@ -1696,7 +1706,7 @@ public:
         // -> residuary under-added (~1% of Delta at mid-Fnv). SOLVER_FIX_PLAN.md P3 (M&S 1973 / R-1667).
         double const Rn_ref = Fnv * (L / vol13)
             * std::sqrt(32.2 * 100000.0 / 64.0) / 1.2817e-5;
-        double const CF_ref = 0.075 / sq(std::log10(std::max(1e3, Rn_ref)) - 2.0);  // ~Schoenherr
+        double const CF_ref = 0.075 / sq(std::log10(std::max(1e3, Rn_ref)) - 2.0);  // ITTC-1957
         double RR_D = RT_D - CF_ref * S_v23 * sq(Fnv) * 0.5;
         if (RR_D < 0.0) RR_D = 0.0;
         double const W_weight = vol * rho * g;
@@ -1919,7 +1929,8 @@ public:
             // F8: sectional pressure-drag consistency (default OFF). Counted WITH vp below so the
             // residuary shortfall and the NSS total envelope re-gate around it (displaces, not stacks).
             double const sec_pd = get_sectional_pressure_drag(speed);
-            double R = Rf + wave + vp + sec_pd + get_whisker_spray_drag(speed);
+            double const whisker = get_whisker_spray_drag(speed);
+            double R = Rf + wave + vp + sec_pd + whisker;
             // Mercier-Savitsky pre-planing RESIDUARY: add only the shortfall beyond the
             // wave + induced-pressure our model already carries (the MS residuary overlaps
             // the Morabito induced drag, so it must not be added on top — that is the F3
@@ -1940,9 +1951,13 @@ public:
                 ms *= tb * tb * (3.0 - 2.0 * tb);
             }
             if (ms > 0.0) {
-                R += std::max(0.0, ms - wave - vp - sec_pd);
+                // The source regression predicts total resistance; after reference friction is
+                // removed, its residuary already contains spray-associated drag.  Deduct the
+                // explicit whisker term with the other resolved components so it is not counted
+                // again inside the positive shortfall.
+                R += std::max(0.0, ms - wave - vp - sec_pd - whisker);
             }
-            // Radojcic NSS TOTAL-resistance envelope (default OFF): floor the planing total to the
+            // Radojcic NSS TOTAL-resistance envelope (default ON): floor the planing total to the
             // regression's total RT. Carries the high-Fn drag the residuary hump-closures drop to zero.
             // planing-weighted so the displacement regime is untouched; max() so it only lifts
             // under-predictions (never lowers the warped over-trim, and inert where the model already
@@ -2583,11 +2598,7 @@ public:
     }
 
     static std::string get_version() {
-#ifdef MICHELL_VERSION
-        return std::string(MICHELL_VERSION);
-#else
-        return std::string("development");
-#endif
+        return std::string(__DATE__);
     }
 
 };

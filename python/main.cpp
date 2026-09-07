@@ -287,6 +287,8 @@ PYBIND11_MODULE(michell, resistance) {
              py::arg("mode"), py::arg("station_frac") = 1.0)
         .def("set_morabito_hydrostatic", &Resistance::set_morabito_hydrostatic)
         .def("set_dynamic_cop_fraction", &Resistance::set_dynamic_cop_fraction)
+        .def("set_blount_fox_amplitude", &Resistance::set_blount_fox_amplitude)
+        .def("get_blount_fox_amplitude", &Resistance::get_blount_fox_amplitude)
         .def("set_cop_savitsky", &Resistance::set_cop_savitsky)
         .def("set_cop_cv_ramp", &Resistance::set_cop_cv_ramp,
              py::arg("slope"), py::arg("ref") = 2.0, py::arg("warp_floor") = 0.13)

@@ -69,6 +69,18 @@ public:
             if (y > eps) {
                 return xi;
             } else if (y > 0.0) {
+                // A triangle that only clips the first raster column can leave
+                // a narrow positive fringe immediately aft of an otherwise
+                // full-width transom.  Do not classify the stern as pointed
+                // until a short look-ahead confirms that no wide row follows.
+                // Three cells are <2.5% L on the production grid, small enough
+                // not to turn a genuinely tapered afterbody into a transom.
+                std::size_t const end = std::min(size_x(), xi + 4);
+                for (std::size_t xj = xi + 1; xj < end; xj++) {
+                    if (get_beam(xj, zi) > eps) {
+                        return xj;
+                    }
+                }
                 return nx;
             }
         }
@@ -100,7 +112,12 @@ public:
             }
         }
 
-        return 0;
+        // The sampled transom can remain wider than the threshold through the
+        // deepest grid row (notably when that row clips the keel/baseline).
+        // This is an immersed transom spanning the captured depth, not a
+        // zero-draft transom.  Returning zero switched the hollow correction
+        // off under sub-grid pose changes.
+        return size_z() > 1 ? std::abs(get_z(0) - get_z(size_z() - 1)) : 0.0;
     }
 
     double get_x(std::size_t xi) const {

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.18)
 
-project(GenericMichell VERSION 1.0.0 LANGUAGES CXX)
+project(GenericMichell VERSION 1.1.0 LANGUAGES CXX)
 
 include(FetchContent)
 

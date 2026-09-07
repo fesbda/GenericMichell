@@ -2,8 +2,8 @@ cff-version: 1.2.0
 message: "If you use this software, please cite the software release and the associated paper."
 title: "GenericMichell: continuous displacement-to-planing resistance solver"
 type: software
-version: 1.0.0
-date-released: 2026-07-17
+version: 1.1.0
+date-released: 2026-09-07
 doi: 10.5281/zenodo.21413025
 identifiers:
   - type: doi
@@ -20,7 +20,7 @@ authors:
 license: GPL-2.0-or-later
 preferred-citation:
   type: article
-  title: "Continuous prediction of resistance and running attitude across the displacement-to-planing transition"
+  title: "A blended reduced-order method for resistance and running attitude across the displacement-to-planing transition"
   authors:
     - family-names: Mimica
       given-names: Davor
