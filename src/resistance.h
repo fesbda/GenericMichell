@@ -77,6 +77,18 @@ private:
     // find_equilibrium outer fixed-point; 0 => the couple term in residual_core is inert.
     double drag_couple_R_ = 0.0;
 
+    // Acceptance record of the LAST find_equilibrium heave solve.  The inner heave search is a
+    // bounded scalar solve; before this record existed find_equilibrium returned its final pose
+    // without testing it against the tolerance the search itself uses, so an unconverged state was
+    // indistinguishable from a converged one.  status: 0 = converged (|Fz| < TOL_FORCE_FRAC*W),
+    // 1 = iteration/eval budget exhausted, 2 = bound-limited (root outside the heave interval).
+    int    eq_heave_status_ = 1;
+    double eq_heave_resid_  = 0.0;   // signed vertical force at the returned pose, N
+    int    eq_heave_iters_  = 0;     // inner iterations used by the final rebalance
+    // Warp gate of the last equilibrium solve (sectional replacement active).  Cached so the
+    // pressure-drag law can form the same bottom-pressure support the attitude balance carried.
+    bool   sec_gate_ = false;
+
     // 2.5D sectional water-entry attitude closure (DEFAULT ON, warp-gated). When ON,
     // find_equilibrium's planing LIFT and MOMENT come from the Sectional added-mass kernel (lift =
     // K*La, moment = lift*(cop_a - cg)) instead of the Morabito dynamic lift + Wagner-3/4 CoP. This
@@ -241,6 +253,15 @@ private:
         // already adequate there); the law takes over through [cv_lo, cv_hi] in CvB. The
         // GPPH deficit lives at CvB >~ 4 (Fn_vol >~ 4.5); the F7 window ([0.1, 3.5]) engaged
         // at the hump and over-charged it (+10..17% at Fn_vol 2.6-3.1 in the first fit).
+        // R2: form the pressure-drag support from the ledger the ATTITUDE balance actually
+        // carried -- w L_P = W - B - L_W_used - (1-w) L_loc -- instead of re-deriving it from the
+        // RAW Michell lift.  The two agree on the Morabito branch up to the local-flow term; on the
+        // sectional-replacement branch the balance fades L_W by (1-w), so the raw subtraction
+        // removes support the balance never counted.  DEFAULT ON: this is a consistency repair,
+        // not a selectable closure.  Inert at a prescribed attitude (sec_gate_ false, w=0) and on
+        // every prismatic comparator point (w=1 wherever the projection ramp is open), so it moves
+        // only the sectional-branch hulls -- Begovic Warp-2 and Warp-3.
+        bool pdyn_ledger_support = true;
         double pdyn_cv_lo = 2.5;
         double pdyn_cv_hi = 4.5;
 
@@ -525,7 +546,13 @@ public:
         double const W = g * const_cast<Hull&>(*original_hull).get_reference_mass();
         double const B = g * H.get_displaced_mass();       // buoyancy at this pose (hydrostatic lift)
         double const L_wave = michell.get_drag_lift_torque(speed).y;
-        double const L_pressure = std::max(0.0, W - B - L_wave);
+        double L_pressure = std::max(0.0, W - B - L_wave);
+        if (cfg.pdyn_ledger_support) {
+            double const w = planing_weight(speed);
+            double const L_wave_used = sec_gate_ ? (1.0 - w) * L_wave : L_wave;
+            double const L_loc = localflow.get_drag_lift_torque_noblesse(speed).y;
+            L_pressure = std::max(0.0, W - B - L_wave_used - (1.0 - w) * L_loc);
+        }
         double const tau_run = std::max(0.0, -degrees(H.get_pitch()));
         if (pdyn_dbutt_deg_ < -1e8) {
             double v = 0.0;
@@ -955,6 +982,9 @@ public:
     double get_sectional_crossflow() const { return sectional.get_crossflow(); }
     void set_sectional_forward_term(bool on, double cs) { sectional.set_forward_term(on, cs); }
     void set_attitude_wave_blend(bool on) { cfg.attitude_wave_blend = on; }
+    /// R2: feed the pressure-drag law the attitude balance's own bottom-pressure support.
+    void set_pdyn_ledger_support(bool on) { cfg.pdyn_ledger_support = on; }
+    bool get_pdyn_ledger_support() const { return cfg.pdyn_ledger_support; }
     bool get_attitude_wave_blend() const { return cfg.attitude_wave_blend; }
     /// Item 4 (F5): scale the Morabito-path Michell wave lift by the immersed-volume fraction
     /// V(pose)/V(design) instead of a blanket fade. Default OFF (byte-identical).
@@ -2255,8 +2285,9 @@ public:
     static constexpr double TOL_FORCE_FRAC       = 1e-3;   // lift/moment convergence tolerance, fraction of W (×Lref for moment)
     static constexpr double HEAVE_LIM_FRAC       = 0.10;   // heave search bound, fraction of Lref
     static constexpr std::size_t EVAL_BUDGET_MIN      = 60; // floor on total residual evaluations
-    static constexpr std::size_t EVAL_BUDGET_PER_ITER = 8;  // residual evaluations granted per requested iteration
-    static constexpr int    HEAVE_NEWTON_ITERS   = 8;      // inner heave Newton/bisection iterations
+    static constexpr std::size_t EVAL_BUDGET_PER_ITER = 24; // residual evaluations granted per requested iteration
+    static constexpr int    HEAVE_NEWTON_ITERS   = 24;     // inner heave Newton/bisection iterations
+                                                           // (was 8: too few to reach TOL_FORCE_FRAC at high Fn)
     static constexpr double AWP_FLOOR_FRAC       = 0.05;   // waterplane-area floor in heave Newton, fraction of design Awp
     static constexpr double HEAVE_STEP_TOL_FRAC  = 1e-6;   // tiny-step convergence tolerance, fraction of Lref
     static constexpr double BALANCED_TOL_MULT    = 10.0;   // "balanced off the rails" threshold, multiple of tol_lift
@@ -2311,30 +2342,87 @@ public:
     // the hull reduces immersion), so the fully-immersed rail carries the most lift (f_lo > 0) and the
     // most-raised rail the least (f_hi < 0); safeguarded Newton (waterplane stiffness) + bisection.
     // (Was the solve_heave lambda.)
-    double solve_heave_at_pitch(double pitch, EqContext& ctx, double h_guess, double& torque_out, bool& balanced) {
+    double solve_heave_at_pitch(double pitch, EqContext& ctx, double h_guess, double& torque_out, bool& balanced,
+                                int* status = nullptr, double* resid = nullptr, int* iters = nullptr) {
         double lift, torque;
         double lo = -ctx.heave_lim, hi = ctx.heave_lim;
         eval_residual(lo, pitch, ctx, lift, torque); double const f_lo = lift;
         eval_residual(hi, pitch, ctx, lift, torque); double const f_hi = lift;
         balanced = false;
+        if (iters) *iters = 0;
         // If the force cannot be balanced inside the bound, settle on the rail (not a balanced point):
         // f_lo<=0 => too heavy even fully immersed; f_hi>=0 => still lifting fully raised (planing beyond bound).
-        if (f_lo <= 0.0) { eval_residual(lo, pitch, ctx, lift, torque); torque_out = torque; return lo; }
-        if (f_hi >= 0.0) { eval_residual(hi, pitch, ctx, lift, torque); torque_out = torque; return hi; }
+        if (f_lo <= 0.0) { eval_residual(lo, pitch, ctx, lift, torque); torque_out = torque;
+                           if (status) *status = 2; if (resid) *resid = lift; return lo; }
+        if (f_hi >= 0.0) { eval_residual(hi, pitch, ctx, lift, torque); torque_out = torque;
+                           if (status) *status = 2; if (resid) *resid = lift; return hi; }
         double h = glm::clamp(h_guess, lo, hi);
-        for (int k = 0; k < HEAVE_NEWTON_ITERS && ctx.evals < ctx.eval_budget; k++) {
+        double h_prev = 0.0, f_prev = 0.0;
+        bool have_prev = false;
+        double width_old = hi - lo;      // bracket width two iterations back
+        bool converged = false;
+        int k = 0;
+        for (; k < HEAVE_NEWTON_ITERS && ctx.evals < ctx.eval_budget; k++) {
             eval_residual(h, pitch, ctx, lift, torque);
-            if (std::abs(lift) < ctx.tol_lift) break;
+            if (std::abs(lift) < ctx.tol_lift) { converged = true; break; }
             if (lift > 0.0) lo = h; else hi = h;      // excess lift => must rise (higher heave)
-            double const Awp = std::max(hull->get_waterplane_area(), AWP_FLOOR_FRAC * ctx.Awp0);
-            double hn = h + lift / (ctx.rho * ctx.g * Awp + SOLVER_EPS);   // Newton: f' = -rho g A_wp
-            if (!(hn > lo && hn < hi)) hn = 0.5 * (lo + hi);   // bisection safeguard
+            // Step derivative.  The hydrostatic waterplane stiffness omits the speed-dependent
+            // wave and bottom-pressure lift and under-estimates |dFz/dh| by roughly a factor of
+            // two at planing; the resulting step overshoots the root and the iterate oscillates
+            // about it with a contraction ratio just under one.  Once two evaluations exist the
+            // secant slope measures the FULL derivative, so prefer it.
+            double slope = -(ctx.rho * ctx.g
+                             * std::max(hull->get_waterplane_area(), AWP_FLOOR_FRAC * ctx.Awp0));
+            if (have_prev && std::abs(h - h_prev) > 1e-12) {
+                double const secant = (lift - f_prev) / (h - h_prev);
+                if (secant < 0.0) slope = secant;     // keep the physical sign: lift falls as the hull rises
+            }
+            h_prev = h; f_prev = lift; have_prev = true;
+            double hn = h - lift / (slope - SOLVER_EPS);
+            // Guarantee geometric bracket reduction (Brent): if the bracket has not halved over
+            // the preceding two iterations, take the bisection step regardless.
+            double const width = hi - lo;
+            bool const stalled = (k % 2 == 1) && (width > 0.5 * width_old);
+            if (k % 2 == 1) width_old = width;
+            if (stalled || !(hn > lo && hn < hi)) hn = 0.5 * (lo + hi);   // bisection safeguard
             bool const tiny = std::abs(hn - h) < HEAVE_STEP_TOL_FRAC * ctx.Lref;
             h = hn;
-            if (tiny) { eval_residual(h, pitch, ctx, lift, torque); break; }
+            if (tiny) { eval_residual(h, pitch, ctx, lift, torque);
+                        converged = std::abs(lift) < ctx.tol_lift; break; }
+        }
+        // The loop can exit on the iteration cap or the eval budget with h advanced PAST its last
+        // evaluation, which would return a heave, a hull pose and a torque belonging to three
+        // different states.  Evaluate once more so the returned pose, the torque the outer trim
+        // solve consumes and the acceptance test below all describe one state.
+        if (!converged) {
+            // A collapsed step with the tolerance unmet means the residual is a STEP FUNCTION of
+            // heave, not that the search ran out of effort: the Michell centre-plane integral is
+            // evaluated on the hull's mesh rows, so a row leaving the waterplane removes its strip
+            // of the source distribution discretely and F_z jumps across zero with no root inside.
+            // Where the bracket has narrowed to that jump, return the better side of the step, so
+            // the residual reported is the attainable minimum rather than an artefact of which side
+            // the last step happened to land on.
+            if ((hi - lo) < 1e-4 * ctx.Lref) {
+                double const cands[3] = {h, lo, hi};
+                double best_h = h, best_f = 1e300;
+                for (double const cand : cands) {
+                    double l2, t2;
+                    eval_residual(cand, pitch, ctx, l2, t2);
+                    if (std::abs(l2) < std::abs(best_f)) { best_h = cand; best_f = l2; }
+                }
+                h = best_h;
+            }
+            eval_residual(h, pitch, ctx, lift, torque);   // pose, torque and residual on ONE state
+            converged = std::abs(lift) < ctx.tol_lift;
         }
         torque_out = torque;
-        balanced = std::abs(lift) < BALANCED_TOL_MULT * ctx.tol_lift;   // converged off the rails
+        // balanced keeps its original, looser meaning -- "off the rails", the trim scan's gate for
+        // discarding railed samples.  Strict acceptance against the search's own force tolerance is
+        // reported separately through status, so the two are no longer conflated.
+        balanced = std::abs(lift) < BALANCED_TOL_MULT * ctx.tol_lift;
+        if (status) *status = converged ? 0 : 1;
+        if (resid) *resid = lift;
+        if (iters) *iters = k;
         return h;
     }
 
@@ -2443,6 +2531,8 @@ public:
             use_sec = warp_spread > cfg.sectional_warp_floor;
         }
 
+        sec_gate_ = use_sec;
+
         EqContext ctx;
         ctx.speed = speed;
         ctx.g = g; ctx.rho = rho;
@@ -2545,11 +2635,25 @@ public:
             }
         }
 
-        // Leave the hull at the converged equilibrium attitude.
+        // Leave the hull at the converged equilibrium attitude, and RECORD whether that final
+        // rebalance actually met the force tolerance (get_equilibrium_status).
         double tq; bool bal;
-        solve_heave_at_pitch(-tau_star, ctx, ctx.h_guess, tq, bal);
+        int status = 1; double resid = 0.0; int used = 0;
+        solve_heave_at_pitch(-tau_star, ctx, ctx.h_guess, tq, bal, &status, &resid, &used);
+        eq_heave_status_ = status;
+        eq_heave_resid_  = resid;
+        eq_heave_iters_  = used;
 
         return {hull->get_heave(), hull->get_pitch(), 0.0};
+    }
+
+    /// Acceptance record of the last find_equilibrium heave solve, as
+    /// {status, Fz_N, |Fz|/W, inner_iterations}.  status: 0 = converged against the solver's own
+    /// TOL_FORCE_FRAC force tolerance, 1 = iteration/eval budget exhausted, 2 = bound-limited.
+    std::vector<double> get_equilibrium_status() const {
+        double const W = env->get_gravity() * const_cast<Hull&>(*original_hull).get_reference_mass();
+        return {double(eq_heave_status_), eq_heave_resid_,
+                (W > 0.0 ? std::abs(eq_heave_resid_) / W : 0.0), double(eq_heave_iters_)};
     }
 
     /// Diagnostic: force/moment breakdown at the CURRENT attitude and speed, with no

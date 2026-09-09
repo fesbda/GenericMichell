@@ -382,6 +382,8 @@ PYBIND11_MODULE(michell, resistance) {
         .def("debug_sectional_at", &Resistance::debug_sectional_at,
              py::arg("heave"), py::arg("pitch"), py::arg("speed"))
         .def("set_attitude_wave_blend", &Resistance::set_attitude_wave_blend, py::arg("on"))
+        .def("set_pdyn_ledger_support", &Resistance::set_pdyn_ledger_support, py::arg("on"))
+        .def("get_pdyn_ledger_support", &Resistance::get_pdyn_ledger_support)
         .def("get_attitude_wave_blend", &Resistance::get_attitude_wave_blend)
         .def("get_whisker_spray_drag", &Resistance::get_whisker_spray_drag)
         .def("set_air_resistance", &Resistance::set_air_resistance)
@@ -417,6 +419,7 @@ PYBIND11_MODULE(michell, resistance) {
         .def("set_itp_root", &Resistance::set_itp_root, py::arg("on"))
         .def("get_itp_root", &Resistance::get_itp_root)
         .def("debug_force_balance", &Resistance::debug_force_balance)
+        .def("get_equilibrium_status", &Resistance::get_equilibrium_status)
         .def("residual_at", &Resistance::residual_at,
              py::arg("heave"), py::arg("pitch"), py::arg("speed"))
         .def("set_grid_precision", &Resistance::set_grid_precision)

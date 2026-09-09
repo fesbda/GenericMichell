@@ -1,5 +1,47 @@
 # Changelog
 
+## 1.2.0 — 2026-09-09
+
+Solver state behind the final revision of the Ocean Engineering manuscript. Both items
+are numerical repairs found by auditing the implementation against the manuscript's own
+equations; neither is a modelling choice, and no closure was retuned.
+
+- **The sinkage solve is repaired and its result is accepted or refused.** Its Newton
+  step took the derivative from the hydrostatic waterplane stiffness alone. That omits
+  the speed-dependent wave and bottom-pressure lift and under-estimates
+  `|dFz/dh|` by about a factor of two at planing, so each step overshot the root and the
+  iterate oscillated about it, the bracket shrinking only microscopically because the
+  overshoot always landed inside it. On one comparator point the iterate ping-ponged
+  between 38.9 and 41.3 mm for its whole budget while plain bisection on the identical
+  residual found the root in twelve evaluations. The solve now takes the secant slope of
+  the two most recent evaluations, forces a bisection step whenever the bracket fails to
+  halve over two iterations, and returns its pose, torque and residual from one final
+  evaluation. It is then tested against the same 0.1%-of-weight force tolerance the
+  search uses, and the outcome is reported through the new `get_equilibrium_status`
+  rather than returned silently. Over the 119-point comparator set the maximum vertical
+  residual falls from 3.88% to 0.67% of weight, no point exceeds 1%, and 105 of 119 are
+  accepted. Where the residual is a step function of sinkage — the centre-plane integral
+  loses a mesh row at once as the hull rises — the solve returns the smaller-imbalance
+  side of the step, which is the attainable minimum there.
+- **The pressure-drag law reads the attitude balance's own support ledger.** It
+  re-derived `L_P,bal` from the raw Michell lift, while the attitude balance fades that
+  lift by `(1 − w)` wherever the sectional water-entry closure replaces the planing lift,
+  and the displacement-side local-flow lift `(1 − w) L_loc` was in neither. The two
+  supports agreed on prismatic hulls but differed by up to 32% of weight on strongly
+  warped ones. `L_P,bal = max(0, W − B_pose − L̂_W − (1 − w) L_loc)` now holds on every
+  branch. The new `set_pdyn_ledger_support` / `get_pdyn_ledger_support` default to on;
+  the change is inert at a prescribed attitude and wherever the planing weight has
+  reached unity, so it moves only warped hulls, and it does not touch predicted attitude
+  at all. Pooled planing resistance MAPE over the comparator set is 8.37% and pooled trim
+  MAE 0.68 degrees, both unchanged at the manuscript's precision; warped-hull resistance
+  MAPE improves from 6.5% to 5.8%.
+- **`python/paper_configuration.py` states the ledger support explicitly** rather than
+  inheriting it from the compiled default, as it already does for the Blount–Fox
+  amplitude.
+- **`CITATION.cff` now carries the concept DOI** in its `doi` field, which always
+  resolves to the latest archived version, with the 1.1.0 version DOI kept under
+  `identifiers`. The previous file pinned a version DOI that went stale on release.
+
 ## 1.1.0 — 2026-09-07
 
 Solver state behind the revised Ocean Engineering manuscript. Two of the items below

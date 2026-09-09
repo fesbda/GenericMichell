@@ -17,5 +17,6 @@ def make_paper_solver(michell, hull):
     solver.set_friction_cv_ramp(99.0, 100.0)
     solver.set_savitsky_trim_weight(0.3)
     solver.set_blount_fox_amplitude(0.0)
+    solver.set_pdyn_ledger_support(True)
     solver.prepare()
     return solver
